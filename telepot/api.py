@@ -1,4 +1,5 @@
 import urllib3
+import urllib3.contrib.socks
 import logging
 import json
 import re
@@ -31,13 +32,23 @@ def set_proxy(url, basic_auth=None):
     if not url:
         _pools['default'] = urllib3.PoolManager(**_default_pool_params)
         _onetime_pool_spec = (urllib3.PoolManager, _onetime_pool_params)
-    elif basic_auth:
-        h = urllib3.make_headers(proxy_basic_auth=':'.join(basic_auth))
-        _pools['default'] = urllib3.ProxyManager(url, proxy_headers=h, **_default_pool_params)
-        _onetime_pool_spec = (urllib3.ProxyManager, dict(proxy_url=url, proxy_headers=h, **_onetime_pool_params))
+        return
+
+    scheme, _ = url.split(':', 1)
+    if scheme in ('http', 'https'):
+        manager_cls = urllib3.ProxyManager
+    elif scheme.startswith('socks'):
+        manager_cls = urllib3.contrib.socks.SOCKSProxyManager
     else:
-        _pools['default'] = urllib3.ProxyManager(url, **_default_pool_params)
-        _onetime_pool_spec = (urllib3.ProxyManager, dict(proxy_url=url, **_onetime_pool_params))
+        raise Exception("Unknown proxy scheme {}".format(scheme))
+
+    if basic_auth:
+        h = urllib3.make_headers(proxy_basic_auth=':'.join(basic_auth))
+        _pools['default'] = manager_cls(url, proxy_headers=h, **_default_pool_params)
+        _onetime_pool_spec = (manager_cls, dict(proxy_url=url, proxy_headers=h, **_onetime_pool_params))
+    else:
+        _pools['default'] = manager_cls(url, **_default_pool_params)
+        _onetime_pool_spec = (manager_cls, dict(proxy_url=url, **_onetime_pool_params))
 
 def _create_onetime_pool():
     cls, kw = _onetime_pool_spec
